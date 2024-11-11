@@ -7,3 +7,6 @@ I changed to this framework, because i was not happy with the performance of the
 
 Before I will use this framework, I made sure that the main.rs example works as expected. The execution is fast and the prediction is correct. Now I will try to learn a 1D benchmark function, like in the last framework.
 
+# 2nd Step - Restructuring
+
+I am really unhappy with the structure of the framework and will change it.
