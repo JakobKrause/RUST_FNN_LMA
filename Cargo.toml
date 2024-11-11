@@ -15,7 +15,13 @@ serde = { version = "1.0.145", features = ["derive"] }
 bincode = "1.3.3"
 savefile="0.11"
 savefile-derive="0.11"
+plotters = "0.3.7"
+colorous = "1.0.6"
 
 [[bin]]
 name="main"
 path="./example/main.rs"
+
+[[bin]]
+name = "main_benchmark"
+path = "./example/main_1Dbenchmark.rs"
