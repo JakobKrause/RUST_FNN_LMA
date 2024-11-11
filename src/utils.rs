@@ -12,16 +12,16 @@ macro_rules! rand_array {
 
 #[macro_export]
 macro_rules! Model {
-    (input_shape &i:expr ,$(dense $x:expr, activation $a:expr),*) => {
+    (input_shape $i:expr ,$(dense $x:expr, activation $a:expr),*) => {
         {
-            let x = vec![$(x)*];
-            let a = vec![$(a)*];
+            let x = vec![$($x),*];
+            let a = vec![$($a),*];
             let mut layers = vec![];
-            layers.push(dense!($i, x[0], a[0]));
+            layers.push(Dense::new($i, x[0], a[0])?);
             for i in 0..x.len()-1 {
-                layers.push(dense!(x[i], x[i+1], a[i+1]));
+                layers.push(Dense::new(x[i], x[i+1], a[i+1])?);
             }
-            Sequential::new(layers);
+            Sequential::new(&layers)
         }
     };
 }

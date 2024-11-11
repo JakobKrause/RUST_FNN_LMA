@@ -1,4 +1,8 @@
 use crate::prelude::*;
+use crate::core::losses::criteria;
+use crate::core::optimizers::Optimization;
+use std::fs::File;
+use std::io::{Read, Write};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Sequential<T: LayerTrait> {
@@ -9,12 +13,15 @@ pub struct Sequential<T: LayerTrait> {
 
 
 impl Sequential<Dense> {
-    pub fn new(layers: &[Dense]) -> Self {
-        Self {
+    pub fn new(layers: &[Dense]) -> Result<Self> {
+        if layers.is_empty() {
+            return Err(NNError::EmptyModel);
+        }
+        Ok(Self {
             layers: layers.try_into().unwrap(),
             optimizer: Optimizer::None,
             loss: Loss::None,
-        }
+        })
     }
 
     pub fn summary(&self) {
@@ -38,7 +45,13 @@ impl Sequential<Dense> {
         self.loss = loss;
     }
 
-    pub fn fit(&mut self, x: Array2<f64>, y: Array2<f64>, epochs: usize, verbose: bool) {
+    pub fn fit(&mut self, x: Array2<f64>, y: Array2<f64>, epochs: usize, verbose: bool) -> Result<()> {
+        if matches!(self.optimizer, Optimizer::None) {
+            return Err(NNError::OptimizerNotSet);
+        }
+        if matches!(self.loss, Loss::None) {
+            return Err(NNError::LossNotSet);
+        }
         for i in 0..epochs {
             // cache (required for back propagation)
             let mut z_cache = vec![];
@@ -49,7 +62,7 @@ impl Sequential<Dense> {
 
             // forward propagate and cache the results
             for layer in self.layers.iter() {
-                (z, a) = layer.forward(a.clone());
+                (z, a) = layer.forward(a.clone())?;
                 z_cache.push(z.clone());
                 a_cache.push(a.clone());
             }
@@ -69,7 +82,7 @@ impl Sequential<Dense> {
 
             // loss = da
             for ((layer, z), a) in (self.layers.iter()).rev().zip((z_cache.clone().iter()).rev()).zip((a_cache.clone().iter()).rev()) {
-                (dw, db, da) = layer.backward(z.clone(), a.clone(), da);
+                (dw, db, da) = layer.backward(z.clone(), a.clone(), da)?;
                 dw_cache.insert(0, dw);
                 db_cache.insert(0, db);
             }
@@ -78,33 +91,51 @@ impl Sequential<Dense> {
                 layer.optimize(dw.clone(), db.clone(), self.optimizer.clone());
             }
         }
+        Ok(())
     }
     
-    pub fn evaluate(&self, x: Array2<f64>, y: Array2<f64>) -> f64 {
-            let (loss, _) = criteria(self.predict(x), y, self.loss.clone());
-            loss
+    pub fn evaluate(&self, x: Array2<f64>, y: Array2<f64>) -> Result<f64> {
+            let (loss, _) = criteria(self.predict(x)?, y, self.loss.clone());
+            Ok(loss)
     }
 
-    pub fn predict(&self, mut x: Array2<f64>) -> Array2<f64> {
+    pub fn predict(&self, mut x: Array2<f64>) -> Result<Array2<f64>> {
         for layer in self.layers.iter() {
-            (_, x) = layer.forward(x);
+            (_, x) = layer.forward(x)?;
         }
-        x
+        Ok(x)
     }
 
-    pub fn save(&self, path: &str) {
-        let encoded: Vec<u8> = bincode::serialize(&self.layers).unwrap();
-        let mut file = File::create(path).unwrap();
-        file.write(&encoded).unwrap();
+    pub fn save(&self, path: &str) -> Result<()> {
+        // Fix: Pass the error as it is. No need to convert it to some other type.
+        let encoded: Vec<u8> = bincode::serialize(&self.layers)
+            .map_err(NNError::SerializationError)?;  // No need for closure here
+            
+        File::create(path)
+            .map_err(NNError::IoError)?  // Correctly handle I/O errors
+            .write_all(&encoded)
+            .map_err(NNError::IoError)?;  // Correctly handle I/O errors
+            
+        Ok(())
     }
 
-    pub fn load(&self, path: &str) -> Sequential<Dense>{
-        let mut file = File::open(path).unwrap();
-        let mut decoded = Vec::new();
-        file.read_to_end(&mut decoded).unwrap();
-        let model: Sequential<_> = bincode::deserialize(&decoded[..]).unwrap();
-        println!("model: {:?}", model);
-        model
+    pub fn load(path: &str) -> Result<Sequential<Dense>> {
+        let mut buffer = Vec::new();
+        
+        File::open(path)
+            .map_err(NNError::IoError)?  // Correctly handle I/O errors
+            .read_to_end(&mut buffer)
+            .map_err(NNError::IoError)?;  // Correctly handle I/O errors
+            
+        // Fix: Pass the error as it is. No need to convert it to some other type.
+        let layers: Vec<Dense> = bincode::deserialize(&buffer)
+            .map_err(NNError::SerializationError)?;  // No need for closure here
+            
+        Ok(Sequential {
+            layers,
+            optimizer: Optimizer::None,
+            loss: Loss::None,
+        })
     }
 
 }
