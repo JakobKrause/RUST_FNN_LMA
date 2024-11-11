@@ -5,16 +5,16 @@ fn main() -> Result<()> {
     let x = array![[1., 2.], [3., 4.], [5., 6.]];
     let y = array![[3.], [7.], [11.]];
 
-    let mut model = Sequential::new(&[
-        Dense::new(4, 2, Activation::Linear)?,
-        Dense::new(2, 4, Activation::Linear)?,
-        Dense::new(1, 2, Activation::Linear)?,
-    ])?;
+    let mut model = Sequential::builder()
+    .add_dense(2, 4, Activation::Linear)?
+    .add_dense(4, 2, Activation::Linear)?
+    .add_dense(2, 1, Activation::Linear)?
+    .optimizer(Optimizer::SGD(0.01))
+    .loss(Loss::MSE)
+    .build()?;
     
     model.summary();
-    
-    model.compile(Optimizer::SGD(0.01), Loss::MSE);
-    
+        
     model.fit(x, y, 1000, true)?;
     
     let x_test = array![[2., 3.]];

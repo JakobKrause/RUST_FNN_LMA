@@ -10,3 +10,11 @@ Before I will use this framework, I made sure that the main.rs example works as 
 # 2nd Step - Restructuring
 
 I am really unhappy with the structure of the framework and will change it.
+
+Done
+
+[commit: Changes to folder structure](https://github.com/JakobKrause/RUST_FNN_LMA/commit/f8a6b1eca1b6377647f539bffcc3780fe18da8f4)
+
+[commit: Function distributions in modules and error handling](https://github.com/JakobKrause/RUST_FNN_LMA/commit/5c7473459d29ef0f930d8722ec62cb5309aa4f15)
+
+I also change the way the model is build with the help of a "SequentialBuilder", this allows for chainable layer addition and a more compact initalization of the model.

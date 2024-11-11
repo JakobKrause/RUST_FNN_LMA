@@ -11,8 +11,19 @@ pub struct Sequential<T: LayerTrait> {
     pub loss: Loss,
 }
 
+pub struct SequentialBuilder {
+    layers: Vec<Dense>,
+    optimizer: Optimizer,
+    loss: Loss,
+}
+
+
 
 impl Sequential<Dense> {
+    pub fn builder() -> SequentialBuilder {
+        SequentialBuilder::new()
+    }
+    
     pub fn new(layers: &[Dense]) -> Result<Self> {
         if layers.is_empty() {
             return Err(NNError::EmptyModel);
@@ -141,3 +152,38 @@ impl Sequential<Dense> {
 }
 
 
+impl SequentialBuilder {
+    pub fn new() -> Self {
+        Self {
+            layers: Vec::new(),
+            optimizer: Optimizer::None,
+            loss: Loss::None,
+        }
+    }
+
+    pub fn add_dense(mut self, input_size: usize, output_size: usize, activation: Activation) -> Result<Self> {
+        let layer = Dense::new(output_size, input_size, activation)?;
+        self.layers.push(layer);
+        Ok(self)
+    }
+
+    pub fn optimizer(mut self, optimizer: Optimizer) -> Self {
+        self.optimizer = optimizer;
+        self
+    }
+
+    pub fn loss(mut self, loss: Loss) -> Self {
+        self.loss = loss;
+        self
+    }
+
+    pub fn build(self) -> Result<Sequential<Dense>> {
+        if self.layers.is_empty() {
+            return Err(NNError::EmptyModel);
+        }
+        
+        let mut model = Sequential::new(&self.layers)?;
+        model.compile(self.optimizer, self.loss);
+        Ok(model)
+    }
+}
