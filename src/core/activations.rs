@@ -33,12 +33,14 @@ impl Activation {
 }
 
 fn sigmoid_forward(z: Array2<f64>) -> Array2<f64> {
-    z.mapv(|z| 1. / (1. / e.powf(-z)))
+    z.mapv(|z| 1.0 / (1.0 + e.powf(-z)))
 }
 
 fn sigmoid_backward(z: Array2<f64>) -> Array2<f64> {
-    let s = sigmoid_forward(z);
-    s.clone() * (1.0 - s)
+    z.mapv(|z| {
+        let s = 1.0 / (1.0 + (-z).exp());
+        s * (1.0 - s)
+    })
 }
 
 fn relu_forward(z: Array2<f64>) -> Array2<f64> {
@@ -58,8 +60,8 @@ fn tanh_backward(z: Array2<f64>) -> Array2<f64> {
 }
 
 fn softmax_forward(z: Array2<f64>) -> Array2<f64> {
-    let z = z.mapv(|z| e.powf(z));
-    z.clone() / z.mean().unwrap()
+    let exp = z.mapv(|z| e.powf(z));
+    exp.clone() / exp.sum()
 }
 
 fn softmax_backward(z: Array2<f64>) -> Array2<f64> {

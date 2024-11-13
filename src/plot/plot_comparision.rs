@@ -28,7 +28,7 @@ pub fn plot_comparison(
         .margin(5)
         .x_label_area_size(30)
         .y_label_area_size(30)
-        .build_cartesian_2d(0f64..10.0f64, y_min..y_max)?;
+        .build_cartesian_2d(0f64..1.0f64, y_min..y_max)?;
 
     chart.configure_mesh().x_desc("x").y_desc("f(x)").draw()?;
 

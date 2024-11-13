@@ -39,22 +39,55 @@ impl LayerTrait for Dense {
 
 impl Dense {
     pub fn forward(&self, a: Array2<f64>) -> Result<(Array2<f64>, Array2<f64>)> {
-        let z = a.dot(&self.w) + self.b.clone();
-        let a = self.activation.forward(z.clone())?;
-        Ok((z, a))
+        // Check shapes
+        if a.ncols() != self.w.nrows() {
+            return Err(NNError::LayerShapeMismatch(format!(
+                "Input shape {:?} is incompatible with weight shape {:?}",
+                a.shape(), self.w.shape()
+            )));
+        }
+
+        // z = a * W + b
+        let z = a.dot(&self.w) + &self.b;
+        let a_next = self.activation.forward(z.clone())?;
+        Ok((z, a_next))
     }
 
-    pub fn backward(&self, z: Array2<f64>, a: Array2<f64>, da: Array2<f64>) -> Result<(Array2<f64>, Array2<f64>, Array2<f64>)> {
-        let dz = self.activation.backward(z, da)?;
-        let dw = (a.reversed_axes().dot(&dz))/(dz.len() as f64);
-        let db = dz.clone().sum_axis(Axis(0)).insert_axis(Axis(0))/(dz.len() as f64);
-        let da = dz.dot(&self.w.t());
-        Ok((dw, db, da))
+    pub fn backward(&self, z: Array2<f64>, a_prev: Array2<f64>, da: Array2<f64>) -> Result<(Array2<f64>, Array2<f64>, Array2<f64>)> {
+        // Compute dZ
+        let dz = self.activation.backward(z, da.clone())?;
+        
+        // Compute dW = (1/m) * (a_prev.T * dZ)
+        let m = dz.nrows() as f64;
+        let dw = a_prev.t().dot(&dz) / m;
+        
+        // Compute db = (1/m) * sum(dZ)
+        let db = dz.sum_axis(Axis(0)).insert_axis(Axis(0)) / m;
+        
+        // Compute da_prev = dZ * W.T
+        let da_prev = dz.dot(&self.w.t());
+
+        // Check shapes
+        if dw.shape() != self.w.shape() {
+            return Err(NNError::LayerShapeMismatch(format!(
+                "Weight gradient shape {:?} doesn't match weight shape {:?}",
+                dw.shape(), self.w.shape()
+            )));
+        }
+
+        if db.shape() != self.b.shape() {
+            return Err(NNError::LayerShapeMismatch(format!(
+                "Bias gradient shape {:?} doesn't match bias shape {:?}",
+                db.shape(), self.b.shape()
+            )));
+        }
+
+        Ok((dw, db, da_prev))
     }
 }
 
 impl Optimization for Dense {
-    fn optimize(&mut self, dw: Array2<f64>, db: Array2<f64>, optimizer: Optimizer) {
-        apply_optimization(&mut self.w, &mut self.b, dw, db, optimizer);
+    fn optimize(&mut self, dw: Array2<f64>, db: Array2<f64>, config: &OptimizerConfig) {
+        apply_optimization(&mut self.w, &mut self.b, dw, db, config);
     }
 }

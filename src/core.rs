@@ -8,4 +8,4 @@ pub mod optimizers;
 pub use activations::Activation;
 pub use layers::{LayerTrait, Dense};
 pub use losses::Loss;
-pub use optimizers::{Optimizer, Optimization, apply_optimization};
+pub use optimizers::*;

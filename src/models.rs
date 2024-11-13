@@ -1,36 +1,39 @@
-use crate::prelude::*;
 use crate::core::losses::criteria;
 use crate::core::optimizers::Optimization;
+use crate::core::GradientClipConfig;
+use crate::core::ClipValue;
+use crate::prelude::*;
 use std::fs::File;
 use std::io::{Read, Write};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Sequential<T: LayerTrait> {
     pub layers: Vec<T>,
-    pub optimizer: Optimizer,
+    pub optimizer_config: OptimizerConfig,
     pub loss: Loss,
 }
 
 pub struct SequentialBuilder {
     layers: Vec<Dense>,
-    optimizer: Optimizer,
+    optimizer_config: OptimizerConfig,
     loss: Loss,
 }
-
-
 
 impl Sequential<Dense> {
     pub fn builder() -> SequentialBuilder {
         SequentialBuilder::new()
     }
-    
     pub fn new(layers: &[Dense]) -> Result<Self> {
         if layers.is_empty() {
             return Err(NNError::EmptyModel);
         }
         Ok(Self {
             layers: layers.try_into().unwrap(),
-            optimizer: Optimizer::None,
+            optimizer_config: OptimizerConfig {
+                optimizer_type: OptimizerType::None,
+                regularizer: Regularizer::None,
+                gradientclip: GradientClipConfig::default(),
+            },
             loss: Loss::None,
         })
     }
@@ -44,70 +47,115 @@ impl Sequential<Dense> {
             let a = layer.w.len();
             let b = layer.b.len();
             total_param += a + b;
-            res.push_str(&format!("{}\t\t\t  (None, {})\t\t  {}\n", layer.typ(), b, a + b));
+            res.push_str(&format!(
+                "{}\t\t\t  (None, {})\t\t  {}\n",
+                layer.typ(),
+                b,
+                a + b
+            ));
         }
         res.push_str("-------------------------------------------------------------\n");
         res.push_str(&format!("Total params: {}\n", total_param));
         println!("{}", res);
     }
 
-    pub fn compile(&mut self, optimizer: Optimizer, loss: Loss) {
-        self.optimizer = optimizer;
+    pub fn compile(&mut self, optimizer_type: OptimizerType, regularizer: Regularizer, loss: Loss, gradientclip: GradientClipConfig) {
+        self.optimizer_config = OptimizerConfig {
+            optimizer_type,
+            regularizer,
+            gradientclip,
+        };
         self.loss = loss;
     }
 
     pub fn fit(&mut self, x: Array2<f64>, y: Array2<f64>, epochs: usize, verbose: bool) -> Result<()> {
-        if matches!(self.optimizer, Optimizer::None) {
+        if matches!(self.optimizer_config.optimizer_type, OptimizerType::None) {
             return Err(NNError::OptimizerNotSet);
         }
         if matches!(self.loss, Loss::None) {
             return Err(NNError::LossNotSet);
         }
-        for i in 0..epochs {
-            // cache (required for back propagation)
+    
+        // Check input shapes
+        if x.ncols() != self.layers[0].w.nrows() {
+            return Err(NNError::InvalidInputShape(format!(
+                "Input shape {:?} doesn't match first layer input shape {:?}",
+                x.shape(), (x.nrows(), self.layers[0].w.nrows())
+            )));
+        }
+    
+        for epoch in 0..epochs {
             let mut z_cache = vec![];
             let mut a_cache = vec![];
-            let mut z: Array2<f64>;
             let mut a = x.clone();
             a_cache.push(a.clone());
-
-            // forward propagate and cache the results
+    
+            // Forward propagation
             for layer in self.layers.iter() {
-                (z, a) = layer.forward(a.clone())?;
-                z_cache.push(z.clone());
-                a_cache.push(a.clone());
+                let (z, a_next) = layer.forward(a)?;
+                z_cache.push(z);
+                a_cache.push(a_next.clone());
+                a = a_next;
             }
-            
-            // cost computation
-            let y_hat = a_cache.pop().unwrap();
-            let (loss, mut da) = criteria(y_hat, y.clone(), self.loss.clone());
+    
+            // Collect weights for regularization
+            let weights: Vec<&Array2<f64>> = self.layers.iter()
+                .map(|layer| &layer.w)
+                .collect();
+    
+            // Compute loss and initial gradient
+            let (raw_loss, mut da, reg_loss) = criteria(
+                a_cache.last().unwrap().clone(),
+                y.clone(),
+                self.loss.clone(),
+                &weights,
+                &self.optimizer_config.regularizer
+            )?;
+    
             if verbose {
-                println!("Epoch: {}/{} cost computation: {:?}", i, epochs, loss);
+                // Helps you tune λ (regularization strength)
+                // If reg_loss >> raw_loss: regularization might be too strong
+                // If reg_loss << raw_loss: regularization might be too weak
+                println!("Epoch: {}/{} raw loss: {} reg loss: {}", epoch, epochs, raw_loss, reg_loss);
             }
-
-            // back propagation
+    
+            // Backward propagation
             let mut dw_cache = vec![];
             let mut db_cache = vec![];
-            let mut dw: Array2<f64>;
-            let mut db: Array2<f64>;
-
-            // loss = da
-            for ((layer, z), a) in (self.layers.iter()).rev().zip((z_cache.clone().iter()).rev()).zip((a_cache.clone().iter()).rev()) {
-                (dw, db, da) = layer.backward(z.clone(), a.clone(), da)?;
+    
+            for ((layer, z), a_prev) in self.layers.iter().rev()
+                .zip(z_cache.iter().rev())
+                .zip(a_cache.iter().rev().skip(1)) {
+                let (dw, db, da_prev) = layer.backward(z.clone(), a_prev.clone(), da)?;
                 dw_cache.insert(0, dw);
                 db_cache.insert(0, db);
+                da = da_prev;
             }
-
-            for ((layer, dw), db) in (self.layers.iter_mut()).zip(dw_cache.clone().iter()).zip(db_cache.clone().iter()) {
-                layer.optimize(dw.clone(), db.clone(), self.optimizer.clone());
+    
+            // Update weights
+            for (layer, (dw, db)) in self.layers.iter_mut()
+                .zip(dw_cache.iter().zip(db_cache.iter())) {
+                layer.optimize(dw.clone(), db.clone(), &self.optimizer_config);
             }
         }
         Ok(())
     }
-    
+
     pub fn evaluate(&self, x: Array2<f64>, y: Array2<f64>) -> Result<f64> {
-            let (loss, _) = criteria(self.predict(x)?, y, self.loss.clone());
-            Ok(loss)
+        let weights: Vec<&Array2<f64>> = self.layers.iter()
+            .map(|layer| &layer.w)
+            .collect();
+    
+        // Handle the Result returned by criteria
+        let (_, _, loss) = criteria(
+            self.predict(x)?,
+            y,
+            self.loss.clone(),
+            &weights,
+            &self.optimizer_config.regularizer
+        )?;  // Use ? to propagate the error
+    
+        Ok(loss)
     }
 
     pub fn predict(&self, mut x: Array2<f64>) -> Result<Array2<f64>> {
@@ -118,57 +166,80 @@ impl Sequential<Dense> {
     }
 
     pub fn save(&self, path: &str) -> Result<()> {
-        // Fix: Pass the error as it is. No need to convert it to some other type.
-        let encoded: Vec<u8> = bincode::serialize(&self.layers)
-            .map_err(NNError::SerializationError)?;  // No need for closure here
-            
+        let encoded: Vec<u8> =
+            bincode::serialize(&self.layers).map_err(NNError::SerializationError)?;
+
         File::create(path)
-            .map_err(NNError::IoError)?  // Correctly handle I/O errors
+            .map_err(NNError::IoError)? 
             .write_all(&encoded)
-            .map_err(NNError::IoError)?;  // Correctly handle I/O errors
-            
+            .map_err(NNError::IoError)?; 
+
         Ok(())
     }
 
     pub fn load(path: &str) -> Result<Sequential<Dense>> {
         let mut buffer = Vec::new();
-        
+
         File::open(path)
-            .map_err(NNError::IoError)?  // Correctly handle I/O errors
+            .map_err(NNError::IoError)? 
             .read_to_end(&mut buffer)
-            .map_err(NNError::IoError)?;  // Correctly handle I/O errors
-            
-        // Fix: Pass the error as it is. No need to convert it to some other type.
-        let layers: Vec<Dense> = bincode::deserialize(&buffer)
-            .map_err(NNError::SerializationError)?;  // No need for closure here
-            
+            .map_err(NNError::IoError)?;
+
+        let layers: Vec<Dense> =
+            bincode::deserialize(&buffer).map_err(NNError::SerializationError)?;
         Ok(Sequential {
             layers,
-            optimizer: Optimizer::None,
+            optimizer_config: OptimizerConfig {
+                optimizer_type: OptimizerType::None,
+                regularizer: Regularizer::None,
+                gradientclip: GradientClipConfig::default(),
+            },
             loss: Loss::None,
         })
     }
-
 }
-
 
 impl SequentialBuilder {
     pub fn new() -> Self {
         Self {
             layers: Vec::new(),
-            optimizer: Optimizer::None,
+            optimizer_config: OptimizerConfig {
+                optimizer_type: OptimizerType::None,
+                regularizer: Regularizer::None,
+                gradientclip: GradientClipConfig::default(),
+            },
             loss: Loss::None,
         }
     }
 
-    pub fn add_dense(mut self, input_size: usize, output_size: usize, activation: Activation) -> Result<Self> {
+    pub fn add_dense(
+        mut self,
+        input_size: usize,
+        output_size: usize,
+        activation: Activation,
+    ) -> Result<Self> {
         let layer = Dense::new(output_size, input_size, activation)?;
         self.layers.push(layer);
         Ok(self)
     }
 
-    pub fn optimizer(mut self, optimizer: Optimizer) -> Self {
-        self.optimizer = optimizer;
+    pub fn optimizer(mut self, optimizer_type: OptimizerType) -> Self {
+        self.optimizer_config.optimizer_type = optimizer_type;
+        self
+    }
+
+    pub fn regularizer(mut self, regularizer: Regularizer) -> Self {
+        self.optimizer_config.regularizer = regularizer;
+        self
+    }
+
+    pub fn clip_weights(mut self, value: f64) -> Self {
+        self.optimizer_config.gradientclip.dw = ClipValue::Value(value);
+        self
+    }
+
+    pub fn clip_biases(mut self, value: f64) -> Self {
+        self.optimizer_config.gradientclip.db = ClipValue::Value(value);
         self
     }
 
@@ -181,9 +252,14 @@ impl SequentialBuilder {
         if self.layers.is_empty() {
             return Err(NNError::EmptyModel);
         }
-        
+
         let mut model = Sequential::new(&self.layers)?;
-        model.compile(self.optimizer, self.loss);
+        model.compile(
+            self.optimizer_config.optimizer_type,
+            self.optimizer_config.regularizer,
+            self.loss,
+            self.optimizer_config.gradientclip,
+        );
         Ok(model)
     }
 }

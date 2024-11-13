@@ -16,5 +16,8 @@ pub use crate::core::{
     LayerTrait,
     Loss,
     Optimizer,
-    apply_optimization
+    apply_optimization,
+    Regularizer,
+    OptimizerType,
+    OptimizerConfig,
 };

@@ -5,7 +5,9 @@ use crate::prelude::*;
 macro_rules! rand_array {
     ($($x:expr),*) => {
         {
-            Array::random(($($x,)*), Uniform::new(-0.01, 0.01))
+            //Array::random(($($x,)*), Uniform::new(-0.01, 0.01))
+            // let n = 1;
+            Array::random(($($x,)*), Uniform::new(-1.0, 1.0))
         }
     };
 }

@@ -8,7 +8,8 @@ fn main() -> Result<()> {
         .add_dense(2, 10, Activation::Linear)?
         .add_dense(10, 6, Activation::Linear)?
         .add_dense(6, 1, Activation::Linear)?
-        .optimizer(Optimizer::SGD(0.1))
+        .optimizer(OptimizerType::SGD(0.01))
+        .regularizer(Regularizer::L2(0.01))
         .loss(Loss::MSE)
         .build()?;
     
