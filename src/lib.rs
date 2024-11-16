@@ -8,7 +8,7 @@ pub mod utils;
 
 
 // Re-export types
-pub use core::{Activation, Dense, LayerTrait, Loss, Optimizer};
+pub use core::{Activation, Dense, LayerTrait, Loss};
 //pub use models::Sequential;
 
 // Re-export macros without using utils::*

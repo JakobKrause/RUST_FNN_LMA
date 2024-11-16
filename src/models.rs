@@ -1,5 +1,5 @@
 use crate::core::losses::criteria;
-use crate::core::optimizers::Optimization;
+use crate::core::optimizers::*;
 use crate::core::GradientClipConfig;
 use crate::core::ClipValue;
 use crate::prelude::*;
@@ -83,62 +83,91 @@ impl Sequential<Dense> {
                 x.shape(), (x.nrows(), self.layers[0].w.nrows())
             )));
         }
-    
-        for epoch in 0..epochs {
-            let mut z_cache = vec![];
-            let mut a_cache = vec![];
-            let mut a = x.clone();
-            a_cache.push(a.clone());
-    
-            // Forward propagation
-            for layer in self.layers.iter() {
-                let (z, a_next) = layer.forward(a)?;
-                z_cache.push(z);
-                a_cache.push(a_next.clone());
-                a = a_next;
-            }
-    
-            // Collect weights for regularization
-            let weights: Vec<&Array2<f64>> = self.layers.iter()
-                .map(|layer| &layer.w)
-                .collect();
-    
-            // Compute loss and initial gradient
-            let (raw_loss, mut da, reg_loss) = criteria(
-                a_cache.last().unwrap().clone(),
-                y.clone(),
-                self.loss.clone(),
-                &weights,
-                &self.optimizer_config.regularizer
-            )?;
-    
-            if verbose {
-                // Helps you tune λ (regularization strength)
-                // If reg_loss >> raw_loss: regularization might be too strong
-                // If reg_loss << raw_loss: regularization might be too weak
-                println!("Epoch: {}/{} raw loss: {} reg loss: {}", epoch, epochs, raw_loss, reg_loss);
-            }
-    
-            // Backward propagation
-            let mut dw_cache = vec![];
-            let mut db_cache = vec![];
-    
-            for ((layer, z), a_prev) in self.layers.iter().rev()
-                .zip(z_cache.iter().rev())
-                .zip(a_cache.iter().rev().skip(1)) {
-                let (dw, db, da_prev) = layer.backward(z.clone(), a_prev.clone(), da)?;
-                dw_cache.insert(0, dw);
-                db_cache.insert(0, db);
-                da = da_prev;
-            }
-    
-            // Update weights
-            for (layer, (dw, db)) in self.layers.iter_mut()
-                .zip(dw_cache.iter().zip(db_cache.iter())) {
-                layer.optimize(dw.clone(), db.clone(), &self.optimizer_config);
+
+        match self.optimizer_config.optimizer_type {
+            OptimizerType::Marquardt { mu, mu_increase, mu_decrease, min_error } => {
+                let mut optimizer = MarquardtOptimizer::new(mu, mu_increase, mu_decrease, min_error);
+                
+                for epoch in 0..epochs {
+                    // Compute Jacobian and error vector
+                    optimizer.compute_jacobian(self, &x, &y)?;
+                    
+                    // Update weights and get new error
+                    let error = optimizer.update_weights(self)?;
+                    
+                    if verbose {
+                        println!("Epoch {}: error = {}", epoch, error);
+                    }
+                    
+                    // Check for convergence
+                    if error < optimizer.min_error {
+                        break;
+                    }
+                }
+                Ok(())
+            },
+            OptimizerType::SGD(_) | OptimizerType::Adam { .. } => {
+
+                for epoch in 0..epochs {
+                    let mut z_cache = vec![];
+                    let mut a_cache = vec![];
+                    let mut a = x.clone();
+                    a_cache.push(a.clone());
+            
+                    // Forward propagation
+                    for layer in self.layers.iter() {
+                        let (z, a_next) = layer.forward(a)?;
+                        z_cache.push(z);
+                        a_cache.push(a_next.clone());
+                        a = a_next;
+                    }
+            
+                    // Collect weights for regularization
+                    let weights: Vec<&Array2<f64>> = self.layers.iter()
+                        .map(|layer| &layer.w)
+                        .collect();
+            
+                    // Compute loss and initial gradient
+                    let (raw_loss, mut da, reg_loss) = criteria(
+                        a_cache.last().unwrap().clone(),
+                        y.clone(),
+                        self.loss.clone(),
+                        &weights,
+                        &self.optimizer_config.regularizer
+                    )?;
+            
+                    if verbose {
+                        // Helps you tune λ (regularization strength)
+                        // If reg_loss >> raw_loss: regularization might be too strong
+                        // If reg_loss << raw_loss: regularization might be too weak
+                        println!("Epoch: {}/{} raw loss: {} reg loss: {}", epoch, epochs, raw_loss, reg_loss);
+                    }
+            
+                    // Backward propagation
+                    let mut dw_cache = vec![];
+                    let mut db_cache = vec![];
+            
+                    for ((layer, z), a_prev) in self.layers.iter().rev()
+                        .zip(z_cache.iter().rev())
+                        .zip(a_cache.iter().rev().skip(1)) {
+                        let (dw, db, da_prev) = layer.backward(z.clone(), a_prev.clone(), da)?;
+                        dw_cache.insert(0, dw);
+                        db_cache.insert(0, db);
+                        da = da_prev;
+                    }
+            
+                    // Update weights
+                    for (layer, (dw, db)) in self.layers.iter_mut()
+                        .zip(dw_cache.iter().zip(db_cache.iter())) {
+                        layer.optimize(dw.clone(), db.clone(), &self.optimizer_config);
+                    }
+                }
+                Ok(())                
+            },
+            OptimizerType::None => {
+                Err(NNError::OptimizerNotSet)
             }
         }
-        Ok(())
     }
 
     pub fn evaluate(&self, x: Array2<f64>, y: Array2<f64>) -> Result<f64> {
@@ -163,6 +192,12 @@ impl Sequential<Dense> {
             (_, x) = layer.forward(x)?;
         }
         Ok(x)
+    }
+
+    pub fn count_parameters(&self) -> usize {
+        self.layers.iter().map(|layer| {
+            layer.w.len() + layer.b.len()
+        }).sum()
     }
 
     pub fn save(&self, path: &str) -> Result<()> {

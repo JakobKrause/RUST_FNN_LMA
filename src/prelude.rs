@@ -15,7 +15,6 @@ pub use crate::core::{
     Dense,
     LayerTrait,
     Loss,
-    Optimizer,
     apply_optimization,
     Regularizer,
     OptimizerType,

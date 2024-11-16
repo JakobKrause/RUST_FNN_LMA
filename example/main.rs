@@ -25,7 +25,7 @@ fn main() -> Result<()> {
         .map(|row| [row[0], row[1]])
         .collect();
     let targets: Vec<f64> = y.iter().copied().collect();
-    let pred_vec: Vec<f64> = predictions.iter().copied().collect();
+    let _pred_vec: Vec<f64> = predictions.iter().copied().collect();
 
     // Generate the plot
     plot_comparision::plot_2d_surface(

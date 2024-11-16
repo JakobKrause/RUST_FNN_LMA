@@ -13,7 +13,7 @@ fn main() -> Result<()> {
     .add_dense(1, 10, Activation::Sigmoid)?
     .add_dense(10, 10, Activation::Sigmoid)?
     .add_dense(10, 1, Activation::Linear)?
-    .optimizer(OptimizerType::SGD(2.))
+    .optimizer(OptimizerType::Marquardt { mu: 0.1, mu_increase: 10., mu_decrease: 0.001, min_error: 1e-6 })
     .regularizer(Regularizer::L1(0.05))
     .clip_weights(1.0)
     .clip_biases(1.0)
