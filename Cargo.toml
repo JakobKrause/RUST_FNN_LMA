@@ -8,19 +8,23 @@ name = "rkl"
 path = "./src/lib.rs"
 
 [dependencies]
-ndarray = { version = "0.15.6", features = ["serde"] }
-ndarray-rand = "0.14.0"
+ndarray = { version = "0.16.1", features = ["serde"] }
+ndarray-rand = "0.15.0"
 rand = "0.8.5"
-serde = { version = "1.0.145", features = ["derive"] }
+serde = { version = "1.0.215", features = ["derive"] }
 bincode = "1.3.3"
-savefile="0.11"
-savefile-derive="0.11"
+savefile="0.18.5"
+savefile-derive="0.18.5"
 plotters = "0.3.7"
-colorous = "1.0.6"
-ndarray-linalg = "0.16"
-blas-src = { version = "0.8", features = ["openblas"] }
-openblas-src = { version = "0.10", features = ["system"] }
-lapack-src = { version = "0.10.0", features = ["system"] }
+colorous = "1.0.15"
+nalgebra = "0.33.2"
+#rayon = "1.8"
+#blas-src = { version = "0.10", features = ["openblas"] }
+autograd = "1.1.1"
+#ndarray-linalg = { version = "0.16", features = ["netlib-static"] }
+#blas-src = { version = "0.8", features = ["openblas"] }
+#openblas-src = { version = "0.10", features = ["system"] }
+#lapack-src = { version = "0.10.0", features = ["system"] }
 
 
 [[bin]]

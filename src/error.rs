@@ -33,6 +33,8 @@ pub enum NNError {
     // Add these two missing variants
     IoError(std::io::Error),
     SerializationError(Box<bincode::ErrorKind>),  // Used for bincode serialization errors
+
+    ShapeError(ndarray::ShapeError),
 }
 
 impl fmt::Display for NNError {
@@ -53,6 +55,7 @@ impl fmt::Display for NNError {
             NNError::ComputationError(msg) => write!(f, "Computation error: {}", msg),
             NNError::IoError(err) => write!(f, "I/O error: {}", err),
             NNError::SerializationError(err) => write!(f, "Serialization error: {}", err),
+            NNError::ShapeError(err) => write!(f, "Shape error: {}", err),
         }
     }
 }

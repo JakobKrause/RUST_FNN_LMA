@@ -1,18 +1,6 @@
 use crate::prelude::*;
 use ndarray::{Array1, Array2};
-use ndarray_linalg::Solve;
-
-// #[derive(Serialize, Deserialize, Debug, Clone)]
-// pub enum Optimizer {
-//     SGD(f64),
-//     Adam {
-//         lr: f64,
-//         beta1: f64,
-//         beta2: f64,
-//         epsilon: f64,
-//     },
-//     None,
-// }
+use nalgebra::{DMatrix, DVector};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Regularizer {
@@ -174,30 +162,57 @@ impl MarquardtOptimizer {
             jacobian: None,
             error_vector: None,
         }
-    }pub fn update_weights(&mut self, network: &mut Sequential<Dense>) -> Result<f64> {
+    }
+    pub fn update_weights(&mut self, network: &mut Sequential<Dense>) -> Result<f64> {
         let j = self.jacobian.as_ref().unwrap();
         let error_vec = self.error_vector.as_ref().unwrap();
         
-        // Compute J^T J and J^T e
-        let jt = j.t();
-        let jt_j = jt.dot(j);
-        let jt_e = jt.dot(error_vec);
-        
-        // Add damping factor
-        let n = jt_j.nrows();
-        let mut damped_jt_j = jt_j.clone();
-        for i in 0..n {
-            damped_jt_j[[i, i]] += self.mu;
-        }
-        
-        // Solve the system (J^T J + μI)δ = J^T e
-        let delta = match damped_jt_j.solve(&jt_e) {
-            Ok(d) => d,
-            Err(linalg_err) => return Err(NNError::SerializationError(Box::new(
-                bincode::ErrorKind::Custom(format!("Failed to solve linear system: {:?}", linalg_err))
-            ))),
-        };
-        
+    // Convert to nalgebra types
+    let j_mat = DMatrix::from_row_slice(j.nrows(), j.ncols(), j.as_slice().unwrap());
+    let e_vec = DVector::from_row_slice(error_vec.as_slice().unwrap());
+    
+    // Compute J^T J and J^T e
+    let jt = j_mat.transpose();
+    let jt_j = &jt * &j_mat;
+    let jt_e = &jt * &e_vec;
+    
+    // Add damping factor
+    let n = jt_j.nrows();
+    let mut damped_jt_j = jt_j;
+    for i in 0..n {
+        damped_jt_j[(i, i)] += self.mu;
+    }
+    
+    // // Solve the system with LU decomposition
+    // let delta = match damped_jt_j.lu().solve(&jt_e) {
+    //     Some(d) => d,
+    //     None => return Err(NNError::SerializationError(Box::new(
+    //         bincode::ErrorKind::Custom("Failed to solve linear system".to_string())
+    //     ))),
+    // };
+    
+    // // Solve the system with QR
+    // let delta = match damped_jt_j.cholesky().and_then(|ch| Some(ch.solve(&jt_e))) {
+    //     Some(d) => d,
+    //     None => return Err(NNError::SerializationError(Box::new(
+    //                 bincode::ErrorKind::Custom("Failed to solve linear system".to_string())
+    //             )))
+    // };
+
+
+
+    // Solve the system with Cholesky
+    let delta = match damped_jt_j.cholesky().and_then(|ch| Some(ch.solve(&jt_e))) {
+        Some(d) => d,
+        None => return Err(NNError::SerializationError(Box::new(
+            bincode::ErrorKind::Custom("Failed to solve linear system".to_string())
+        ))),
+    };
+    // Convert back to ndarray type and continue with the updates
+    let delta = Array1::from_vec(delta.data.as_vec().clone());
+    
+
+
         // Update weights
         let mut param_idx = 0;
         for layer in network.layers.iter_mut() {
@@ -222,6 +237,65 @@ impl MarquardtOptimizer {
         Ok(error_vec.dot(error_vec))
     }
     
+
+    // pub fn update_weights(&mut self, network: &mut Sequential<Dense>) -> Result<f64> {
+    //     let j = self.jacobian.as_ref().unwrap();
+    //     let error_vec = self.error_vector.as_ref().unwrap();
+        
+    //     // Convert to nalgebra types
+    //     let j_mat = DMatrix::from_row_slice(j.nrows(), j.ncols(), j.as_slice().unwrap());
+    //     let e_vec = DVector::from_row_slice(error_vec.as_slice().unwrap());
+        
+    //     // Compute J^T J and J^T e
+    //     let jt = j_mat.transpose();
+    //     let jt_j = &jt * &j_mat;
+    //     let jt_e = &jt * &e_vec;
+        
+    //     // Add damping factor
+    //     let n = jt_j.nrows();
+    //     let mut damped_jt_j = jt_j;
+    //     for i in 0..n {
+    //         damped_jt_j[(i, i)] += self.mu;
+    //     }
+        
+    //     // Solve the system
+    //     let cholesky = damped_jt_j.cholesky()
+    //         .ok_or_else(|| NNError::SerializationError(Box::new(
+    //             bincode::ErrorKind::Custom("Failed to compute Cholesky decomposition".to_string())
+    //         )))?;
+        
+    //     let delta = cholesky.solve(&jt_e);
+        
+    //     // Convert to vector and update parameters
+    //     let delta_vec = delta.as_slice();
+    //     let mut param_idx = 0;
+        
+    //     for layer in network.layers.iter_mut() {
+    //         // Update weights
+    //         let w_rows = layer.w.nrows();
+    //         let w_cols = layer.w.ncols();
+    //         for i in 0..w_rows {
+    //             for j in 0..w_cols {
+    //                 layer.w[[i, j]] += delta_vec[param_idx];
+    //                 param_idx += 1;
+    //             }
+    //         }
+            
+    //         // Update biases
+    //         let b_rows = layer.b.nrows();
+    //         let b_cols = layer.b.ncols();
+    //         for i in 0..b_rows {
+    //             for j in 0..b_cols {
+    //                 layer.b[[i, j]] += delta_vec[param_idx];
+    //                 param_idx += 1;
+    //             }
+    //         }
+    //     }
+
+    //     // Return sum of squared errors
+    //     Ok(error_vec.dot(error_vec))
+    // }
+
     pub fn compute_jacobian(&mut self, network: &mut Sequential<Dense>, x: &Array2<f64>, y: &Array2<f64>) -> Result<()> {
         let batch_size = x.nrows();
         let output_size = y.ncols();

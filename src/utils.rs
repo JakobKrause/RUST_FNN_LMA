@@ -1,13 +1,22 @@
 #[allow(unused)]
 use crate::prelude::*;
 
+// #[macro_export]
+// macro_rules! rand_array {
+//     ($($x:expr),*) => {
+//         {
+//             //Array::random(($($x,)*), Uniform::new(-0.01, 0.01))
+//             // let n = 1;
+//             Array::random(($($x,)*), Uniform::new(-1.0, 1.0))
+//         }
+//     };
+// }
+
 #[macro_export]
 macro_rules! rand_array {
     ($($x:expr),*) => {
         {
-            //Array::random(($($x,)*), Uniform::new(-0.01, 0.01))
-            // let n = 1;
-            Array::random(($($x,)*), Uniform::new(-1.0, 1.0))
+            Array2::random(($($x,)*), Uniform::new(-1.0, 1.0))
         }
     };
 }

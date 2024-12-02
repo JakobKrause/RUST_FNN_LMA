@@ -10,19 +10,20 @@ fn main() -> Result<()> {
     let y = Array2::from_shape_vec((y_vec.len(), 1), y_vec.clone()).unwrap();
 
     let mut model = Sequential::builder()
-    .add_dense(1, 10, Activation::Sigmoid)?
-    .add_dense(10, 10, Activation::Sigmoid)?
+    .add_dense(1, 10, Activation::Tanh)?
+    .add_dense(10, 10, Activation::Tanh)?
     .add_dense(10, 1, Activation::Linear)?
-    .optimizer(OptimizerType::Marquardt { mu: 0.1, mu_increase: 10., mu_decrease: 0.001, min_error: 1e-6 })
-    .regularizer(Regularizer::L1(0.05))
-    .clip_weights(1.0)
-    .clip_biases(1.0)
+    .optimizer(OptimizerType::Marquardt { mu: 1., mu_increase: 10., mu_decrease: 0.001, min_error: 1e-6 })
+    //.optimizer(OptimizerType::SGD(0.3))
+    // .regularizer(Regularizer::L1(0.05))
+    // .clip_weights(1.0)
+    // .clip_biases(1.0)
     .loss(Loss::MSE)
     .build()?;
 
     model.summary();
 
-    model.fit(x.clone(), y.clone(), 2000, true)?;
+    model.fit(x.clone(), y.clone(), 100, true)?;
 
     let prediction = model.predict(x.clone())?;
     let mse = model.evaluate(x.clone(), y.clone());
@@ -32,9 +33,9 @@ fn main() -> Result<()> {
 
     // Call the plotting function
     plot_comparision::plot_comparison(
-        &x.into_raw_vec(),
-        &y.into_raw_vec(),
-        &prediction.into_raw_vec(),
+        x.as_slice().unwrap(),
+        y.as_slice().unwrap(),
+        prediction.as_slice().unwrap(),
         "multimodal_comparison.png",
     ).unwrap();
 
