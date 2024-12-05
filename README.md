@@ -162,7 +162,7 @@ However the more speed up is achievable with parallelization of the calculation 
 
 With changing the iterator for the loop to a parallel iterator with [rayon](https://docs.rs/rayon/latest/rayon/) the most significant speed up is achieved.
 
-With 8 parallel works the speed up was around 3 times due to some parallelization overhead.
+With 8 parallel workers the speed up was around 3 times due to some parallelization overhead.
 
 <img src="images/flamegraph_parallel.png" alt="Prediction for faster::tanh"/>
 
@@ -172,11 +172,13 @@ The flamegraph now becomes nearly unreadable with the right prominent block manl
 
 With the flamegraphs the bottleneck in terms of CPU performance of this training was identified and reduced. The execution time now does feel like it is comparable with the matlab performance, opening the opportunity to conduct a detailed comparison.
 
+### Fitting performance
+
 Upon comparing on a first eye glance it can be concluded, that this implementation has problems with achieving small errors rates within a small number of epochs, to visualize it I will implement something similar to this:
 
 <img src="images/perf.png" alt="Matlab performance plot" width="400"/>
 
-### Fitting performance
+
 
 Now a the framework can display the training error over the epochs.
 
@@ -198,4 +200,4 @@ This framework still lacks a validation and test set which is crucial for the ma
 
 In addition I need to further analyze the reason for the poor performance during the early epochs.
 
-Also I need to further tidy the framework and try to implement a more general approach to the different 
+Also I need to further tidy the framework and try to implement a more general approach to the different optimizer implementations.
