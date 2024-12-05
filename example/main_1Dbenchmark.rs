@@ -1,6 +1,6 @@
 use rkl::benchmark::functions::Multimodal1D;
 use rkl::prelude::*;
-use rkl::plot::plot_comparision;
+use rkl::plot::*;
 
 // use flame;
 // use flamescope;
@@ -18,15 +18,15 @@ fn main() -> Result<()> {
     let y = Array2::from_shape_vec((y_vec.len(), 1), y_vec.clone()).unwrap();
 
     let mut model = Sequential::builder()
-    .add_dense(1, 20, Activation::Tanh)?
-    .add_dense(20, 20, Activation::Tanh)?
-    .add_dense(20, 10, Activation::Tanh)?
+    .add_dense(1, 10, Activation::Tanh)?
+    //.add_dense(20, 20, Activation::Tanh)?
+    .add_dense(10, 10, Activation::Tanh)?
     .add_dense(10, 1, Activation::Linear)?
-    .optimizer(OptimizerType::Marquardt { mu: 0.1, mu_increase: 10.0, mu_decrease: 0.1, min_error: 1e-5 })
-    //.optimizer(OptimizerType::SGD(0.3))
-    // .regularizer(Regularizer::L1(1.))
-    // .clip_weights(0.01)
-    // .clip_biases(0.01)
+    .optimizer(OptimizerType::Marquardt { mu: 10., mu_increase: 3.1, mu_decrease: 0.1, min_error: 1e-5 })
+    //.optimizer(OptimizerType::SGD(0.5))
+    // .regularizer(Regularizer::L2(0.001))
+    // .clip_weights(0.1)
+    // .clip_biases(0.1)
     .loss(Loss::MSE)
     .build()?;
 
@@ -48,8 +48,10 @@ fn main() -> Result<()> {
         "multimodal_comparison.png",
     ).unwrap();
 
+    plot_errors_over_epochs::plot_errors_over_epochs(&model.errors, "error_over_epochs.png").unwrap();
 
     model.save("./test.model")?;
+
 
     //FF main_guard.end();
     //FF flamescope::dump(&mut File::create("flamescope.json").unwrap()).unwrap();

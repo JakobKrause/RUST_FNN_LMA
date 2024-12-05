@@ -16,7 +16,7 @@ use crate::prelude::*;
 macro_rules! rand_array {
     ($($x:expr),*) => {
         {
-            Array2::random(($($x,)*), Uniform::new(-1.0, 1.0))
+            Array2::random(($($x,)*), Uniform::new(-3., 3.))
         }
     };
 }

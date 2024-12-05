@@ -20,16 +20,40 @@ pub struct Dense {
 
 impl LayerTrait for Dense {
     fn new(perceptron: usize, prev: usize, activation: Activation) -> Result<Self> {
+        // if perceptron == 0 || prev == 0 {
+        //     return Err(NNError::InvalidLayerConfiguration(
+        //         "Layer dimensions must be greater than 0".to_string()
+        //     ));
+        // }
+        // Ok(Self {
+        //     w: rand_array!(prev, perceptron),
+        //     b: rand_array!(1, perceptron),
+        //     activation,
+        // })
+
         if perceptron == 0 || prev == 0 {
             return Err(NNError::InvalidLayerConfiguration(
-                "Layer dimensions must be greater than 0".to_string()
+                "Layer dimensions must be greater than 0".to_string(),
             ));
         }
+
+        // Compute the bound based on the Normalized Xavier Initialization
+        let bound = (6.0_f64).sqrt() / ((prev + perceptron) as f64).sqrt();
+        let lower = -bound;
+        let upper = bound;
+
+        // Initialize weights with Uniform distribution in [lower, upper]
+        let w = Array2::random((prev, perceptron), Uniform::new(lower, upper));
+
+        // Initialize biases to zero
+        let b = Array2::zeros((1, perceptron));
+
         Ok(Self {
-            w: rand_array!(prev, perceptron),
-            b: rand_array!(1, perceptron),
+            w,
+            b,
             activation,
         })
+
     }
 
     fn typ(&self) -> String {

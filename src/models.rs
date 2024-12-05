@@ -11,12 +11,15 @@ pub struct Sequential<T: LayerTrait> {
     pub layers: Vec<T>,
     pub optimizer_config: OptimizerConfig,
     pub loss: Loss,
+    #[serde(skip)] // Skip serialization
+    pub errors: Vec<f64>,
 }
 
 pub struct SequentialBuilder {
     layers: Vec<Dense>,
     optimizer_config: OptimizerConfig,
     loss: Loss,
+    
 }
 
 impl Sequential<Dense> {
@@ -35,6 +38,7 @@ impl Sequential<Dense> {
                 gradientclip: GradientClipConfig::default(),
             },
             loss: Loss::None,
+            errors: vec![], 
         })
     }
 
@@ -88,13 +92,21 @@ impl Sequential<Dense> {
         match self.optimizer_config.optimizer_type {
             OptimizerType::Marquardt { mu, mu_increase, mu_decrease, min_error } => {
                 let mut optimizer = MarquardtOptimizer::new(mu, mu_increase, mu_decrease, min_error);
-                
+                let num_samples = x.nrows();
                 for epoch in 0..epochs {
                     // Compute Jacobian and error vector
+                    // println!("Computing Jacobian...........");
                     optimizer.compute_jacobian(self, &x, &y)?;
-                    
+                    // println!("Computing Jacobian finished!");
+
                     // Update weights and get new error
+                    // println!("Updating parameters...........");
                     let error = optimizer.update_weights(self, &x, &y)?;
+                    let mse  = error/num_samples as f64;
+
+                    // println!("Updating parameters finished!");
+
+                    self.errors.push(mse);
                     
                     if verbose {
                         // Print the current epoch, error, and mu
@@ -102,7 +114,7 @@ impl Sequential<Dense> {
                             "Epoch: {}/{} | Error: {:.12} | mu: {:.6}",
                             epoch + 1,
                             epochs,
-                            error,
+                            mse,
                             optimizer.mu
                         );
                     }
@@ -143,6 +155,8 @@ impl Sequential<Dense> {
                         &weights,
                         &self.optimizer_config.regularizer
                     )?;
+
+                    self.errors.push(raw_loss);
             
                     if verbose {
                         // Helps you tune λ (regularization strength)
@@ -271,6 +285,7 @@ impl Sequential<Dense> {
                 gradientclip: GradientClipConfig::default(),
             },
             loss: Loss::None,
+            errors: vec![],
         })
     }
 }

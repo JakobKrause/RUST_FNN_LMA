@@ -20,4 +20,5 @@ pub mod benchmark {
 
 pub mod plot {
     pub mod plot_comparision;
+    pub mod plot_errors_over_epochs;
 }

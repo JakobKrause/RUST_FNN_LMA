@@ -204,7 +204,7 @@ impl MarquardtOptimizer {
             .cloned()
             .collect();
 
-        let delta = 1e-5;
+        let delta = 1e-7;
 
         let derivs: Vec<Array1<f64>> = (0..num_parameters)
             .into_par_iter()
