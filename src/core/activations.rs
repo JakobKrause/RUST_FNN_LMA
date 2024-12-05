@@ -1,5 +1,8 @@
 #[allow(unused)]
 use crate::prelude::*;
+use fastapprox::fast::tanh as faster_tanh;
+use fastapprox::fast::exp as fast_exp;
+use fastapprox::fast::sigmoid as sigmoid_fast;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub enum Activation {
@@ -33,7 +36,11 @@ impl Activation {
 }
 
 fn sigmoid_forward(z: Array2<f64>) -> Array2<f64> {
-    z.mapv(|z| 1.0 / (1.0 + e.powf(-z)))
+    // z.mapv(|z| 1.0 / (1.0 + (-z).exp()))
+
+    // z.mapv(|z| 1.0 / (1.0 + fast_exp(-z as f32) as f64))
+
+    z.mapv(|z| sigmoid_fast(z as f32) as f64)
 }
 
 fn sigmoid_backward(z: Array2<f64>) -> Array2<f64> {
@@ -41,6 +48,18 @@ fn sigmoid_backward(z: Array2<f64>) -> Array2<f64> {
         let s = 1.0 / (1.0 + (-z).exp());
         s * (1.0 - s)
     })
+
+    
+    // z.mapv(|z| {
+    //     let s = 1.0 / (1.0 + fast_exp(-z as f32) as f64);
+    //     s * (1.0 - s)
+    // })
+
+    // z.mapv(|z| {
+    //     let s = sigmoid_fast(z as f32) as f64;
+    //     s * (1.0 - s)
+    // })
+
 }
 
 fn relu_forward(z: Array2<f64>) -> Array2<f64> {
@@ -53,10 +72,17 @@ fn relu_backward(z: Array2<f64>) -> Array2<f64> {
 
 fn tanh_forward(z: Array2<f64>) -> Array2<f64> {
     z.mapv(|z| z.tanh())
+    
+    // z.mapv(|z| faster_tanh(z as f32) as f64)
 }
 
 fn tanh_backward(z: Array2<f64>) -> Array2<f64> {
     z.mapv(|z| 1.0 - z.tanh().powf(2.0))
+
+    // z.mapv(|z| {
+    //     let t = faster_tanh(z as f32) as f64;
+    //     1.0 - t * t
+    // })
 }
 
 fn softmax_forward(z: Array2<f64>) -> Array2<f64> {

@@ -1,3 +1,7 @@
+[profile.release]
+debug = true
+lto = false
+
 [package]
 name = "rkl"
 version = "0.1.0"
@@ -18,7 +22,8 @@ savefile-derive="0.18.5"
 plotters = "0.3.7"
 colorous = "1.0.15"
 nalgebra = "0.33.2"
-#rayon = "1.8"
+fastapprox = "0.3.1"
+rayon = "1.8"
 #blas-src = { version = "0.10", features = ["openblas"] }
 autograd = "1.1.1"
 #ndarray-linalg = { version = "0.16", features = ["netlib-static"] }
@@ -27,9 +32,9 @@ autograd = "1.1.1"
 #lapack-src = { version = "0.10.0", features = ["system"] }
 
 
-[[bin]]
-name="main"
-path="./example/main.rs"
+# [[bin]]
+# name="main"
+# path="./example/main.rs"
 
 [[bin]]
 name = "main_benchmark"

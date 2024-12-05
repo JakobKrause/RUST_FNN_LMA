@@ -69,6 +69,7 @@ impl Sequential<Dense> {
     }
 
     pub fn fit(&mut self, x: Array2<f64>, y: Array2<f64>, epochs: usize, verbose: bool) -> Result<()> {
+        // let _scope_guard = flame::start_guard("fit");
         if matches!(self.optimizer_config.optimizer_type, OptimizerType::None) {
             return Err(NNError::OptimizerNotSet);
         }
@@ -93,10 +94,17 @@ impl Sequential<Dense> {
                     optimizer.compute_jacobian(self, &x, &y)?;
                     
                     // Update weights and get new error
-                    let error = optimizer.update_weights(self)?;
+                    let error = optimizer.update_weights(self, &x, &y)?;
                     
                     if verbose {
-                        println!("Epoch {}: error = {}", epoch, error);
+                        // Print the current epoch, error, and mu
+                        println!(
+                            "Epoch: {}/{} | Error: {:.12} | mu: {:.6}",
+                            epoch + 1,
+                            epochs,
+                            error,
+                            optimizer.mu
+                        );
                     }
                     
                     // Check for convergence
@@ -188,11 +196,44 @@ impl Sequential<Dense> {
     }
 
     pub fn predict(&self, mut x: Array2<f64>) -> Result<Array2<f64>> {
+        //FF let _scope_guard = flame::start_guard("predict");
         for layer in self.layers.iter() {
             (_, x) = layer.forward(x)?;
         }
         Ok(x)
     }
+
+    pub fn predict_with_weights(&self, mut x: Array2<f64>, weights: &Vec<f64>) -> Result<Array2<f64>> {
+        let mut idx = 0;
+        for layer in &self.layers {
+            let num_w = layer.w.len();
+            let num_b = layer.b.len();
+
+            // Extract weights and biases for this layer
+            let w_slice = &weights[idx..idx + num_w];
+            idx += num_w;
+            let b_slice = &weights[idx..idx + num_b];
+            idx += num_b;
+
+            // Reshape weights and biases to the correct shapes
+            let w_shape = layer.w.raw_dim();
+            let b_shape = layer.b.raw_dim();
+
+            let w = Array2::from_shape_vec(w_shape, w_slice.to_vec())
+            .map_err(|_| NNError::InvalidWeightShape("Failed to reshape weight vector".to_string()))?;
+            let b = Array2::from_shape_vec(b_shape, b_slice.to_vec())
+            .map_err(|_| NNError::InvalidBiasShape("Failed to reshape bias vector".to_string()))?;
+
+            // Compute z = x * w + b
+            let z = x.dot(&w) + &b;
+
+            // Apply activation function
+            x = layer.activation.forward(z)?;
+        }
+        Ok(x)
+    }
+
+    
 
     pub fn count_parameters(&self) -> usize {
         self.layers.iter().map(|layer| {
@@ -284,6 +325,7 @@ impl SequentialBuilder {
     }
 
     pub fn build(self) -> Result<Sequential<Dense>> {
+        // let _scope_guard = flame::start_guard("build");
         if self.layers.is_empty() {
             return Err(NNError::EmptyModel);
         }

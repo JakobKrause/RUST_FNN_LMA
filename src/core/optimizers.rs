@@ -1,6 +1,7 @@
 use crate::prelude::*;
-use ndarray::{Array1, Array2};
 use nalgebra::{DMatrix, DVector};
+use ndarray::{Array1, Array2};
+use rayon::prelude::*;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum Regularizer {
@@ -15,8 +16,8 @@ pub enum ClipValue {
 }
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct GradientClipConfig {
-    pub dw: ClipValue,  // for weight gradients
-    pub db: ClipValue,  // for bias gradients
+    pub dw: ClipValue, // for weight gradients
+    pub db: ClipValue, // for bias gradients
 }
 
 impl Default for GradientClipConfig {
@@ -42,8 +43,6 @@ impl GradientClipConfig {
         }
     }
 }
-
-
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct OptimizerConfig {
@@ -106,7 +105,7 @@ pub fn apply_optimization(
         ClipValue::Value(clip_value) => clip_gradients(&mut dw, clip_value),
         ClipValue::None => (),
     }
-    
+
     match config.gradientclip.db {
         ClipValue::Value(clip_value) => clip_gradients(&mut db, clip_value),
         ClipValue::None => (),
@@ -132,9 +131,14 @@ pub fn apply_optimization(
                 epsilon
             );
         }
-        OptimizerType::Marquardt { mu: _, mu_increase: _, mu_decrease: _, min_error: _ } => {
+        OptimizerType::Marquardt {
+            mu: _,
+            mu_increase: _,
+            mu_decrease: _,
+            min_error: _,
+        } => {
             // Marquardt optimization is handled separately in the fit() method
-        },
+        }
         OptimizerType::None => (),
     }
 }
@@ -163,162 +167,176 @@ impl MarquardtOptimizer {
             error_vector: None,
         }
     }
-    pub fn update_weights(&mut self, network: &mut Sequential<Dense>) -> Result<f64> {
-        let j = self.jacobian.as_ref().unwrap();
-        let error_vec = self.error_vector.as_ref().unwrap();
-        
-    // Convert to nalgebra types
-    let j_mat = DMatrix::from_row_slice(j.nrows(), j.ncols(), j.as_slice().unwrap());
-    let e_vec = DVector::from_row_slice(error_vec.as_slice().unwrap());
-    
-    // Compute J^T J and J^T e
-    let jt = j_mat.transpose();
-    let jt_j = &jt * &j_mat;
-    let jt_e = &jt * &e_vec;
-    
-    // Add damping factor
-    let n = jt_j.nrows();
-    let mut damped_jt_j = jt_j;
-    for i in 0..n {
-        damped_jt_j[(i, i)] += self.mu;
+
+    pub fn compute_jacobian(
+        &mut self,
+        network: &Sequential<Dense>,
+        x: &Array2<f64>,
+        y: &Array2<f64>,
+    ) -> Result<()> {
+        // Number of samples and outputs
+        let num_samples = x.nrows();
+        let num_outputs = y.ncols();
+        let num_parameters: usize = network // number of parameters
+            .count_parameters();
+
+        // Initialize Jacobian matrix and error vector
+        let mut j = Array2::<f64>::zeros((num_samples * num_outputs, num_parameters));
+        let mut err = Array1::<f64>::zeros(num_samples * num_outputs);
+
+        // Compute initial predictions
+        let y_pred = network.predict(x.clone())?;
+        let error = &y_pred - y;
+
+        // Flatten error vector
+        err.assign(
+            &error
+                .clone()
+                .to_shape((num_samples * num_outputs,))
+                .unwrap(),
+        );
+
+        // Flatten all weights and biases into a single vector
+        let w: Vec<f64> = network
+            .layers
+            .iter()
+            .flat_map(|layer| layer.w.iter().chain(layer.b.iter()))
+            .cloned()
+            .collect();
+
+        let delta = 1e-5;
+
+        let derivs: Vec<Array1<f64>> = (0..num_parameters)
+            .into_par_iter()
+            .map(|i| {
+                // Create a local copy of weights
+                let mut w_clone = w.clone();
+
+                // Perturb weight
+                w_clone[i] += delta;
+
+                // Use the perturbed weights directly without cloning the network
+                let y_pred_perturbed = network.predict_with_weights(x.clone(), &w_clone).unwrap();
+
+                let delta_y = y_pred_perturbed - y_pred.clone();
+                let delta_y_flat = delta_y.to_shape((num_samples * num_outputs,)).unwrap();
+                let deriv = &delta_y_flat / delta;
+
+                deriv
+            })
+            .collect();
+
+        // Assemble the Jacobian matrix from the derivatives
+        for (i, deriv) in derivs.into_iter().enumerate() {
+            j.slice_mut(s![.., i]).assign(&deriv);
+        }
+
+        self.jacobian = Some(j);
+        self.error_vector = Some(err);
+        Ok(())
     }
-    
-    // // Solve the system with LU decomposition
-    // let delta = damped_jt_j
-    // .lu()
-    // .solve(&jt_e)
-    // .ok_or_else(|| NNError::SerializationError(Box::new(
-    //     bincode::ErrorKind::Custom("Failed to compute LU decomposition".to_string())
-    // )))?;
-    
-    // // // Solve the system with QR
-    // let delta = damped_jt_j
-    //     .qr()
-    //     .solve(&jt_e)
-    //     .ok_or_else(|| NNError::SerializationError(Box::new(
-    //         bincode::ErrorKind::Custom("Failed to compute Cholesky decomposition".to_string())
-    //     )))?;
 
+    pub fn update_weights(
+        &mut self,
+        network: &mut Sequential<Dense>,
+        x: &Array2<f64>,
+        y: &Array2<f64>,
+    ) -> Result<f64> {
+        let j = self
+            .jacobian
+            .as_ref()
+            .ok_or(NNError::Other("Jacobian not computed".to_string()))?;
+        let err = self
+            .error_vector
+            .as_ref()
+            .ok_or(NNError::Other("Error vector not computed".to_string()))?;
 
+        // Convert to nalgebra types
+        let j_nalgebra = DMatrix::from_row_slice(j.nrows(), j.ncols(), j.as_slice().unwrap());
+        let e_nalgebra = DVector::from_column_slice(err.as_slice().unwrap());
 
-    // Solve the system with Cholesky
-    let delta = damped_jt_j
-        .cholesky()
-        .ok_or_else(|| NNError::SerializationError(Box::new(
-            bincode::ErrorKind::Custom("Failed to compute Cholesky decomposition".to_string())
-        )))?
-        .solve(&jt_e);
+        // Compute j^T j + mu * I
+        let jt_j = &j_nalgebra.transpose() * &j_nalgebra;
+        let identity = DMatrix::<f64>::identity(j.ncols(), j.ncols());
+        let jt_j_mu_i = jt_j.clone() + self.mu * identity;
 
-    // Convert back to ndarray type and continue with the updates
-    let delta = Array1::from_vec(delta.data.as_vec().clone());
-    
+        // Compute j^T err
+        let jt_e = &j_nalgebra.transpose() * &e_nalgebra;
 
+        // Solve for delta_w
+        let delta_w = jt_j_mu_i
+            .lu()
+            .solve(&(-jt_e))
+            .ok_or(NNError::Other("Failed to solve linear system".to_string()))?;
 
         // Update weights
-        let mut param_idx = 0;
-        for layer in network.layers.iter_mut() {
-            // Update weights
-            for i in 0..layer.w.nrows() {
-                for j in 0..layer.w.ncols() {
-                    layer.w[[i, j]] += delta[param_idx];
-                    param_idx += 1;
-                }
-            }
-            
-            // Update biases
-            for i in 0..layer.b.nrows() {
-                for j in 0..layer.b.ncols() {
-                    layer.b[[i, j]] += delta[param_idx];
-                    param_idx += 1;
-                }
-            }
+        let mut w: Vec<f64> = Vec::new();
+        for layer in &network.layers {
+            w.extend(layer.w.iter());
+            w.extend(layer.b.iter());
         }
-        
-        // Return sum of squared errors
-        Ok(error_vec.dot(error_vec))
-    }
-    
-    pub fn compute_jacobian(&mut self, network: &mut Sequential<Dense>, x: &Array2<f64>, y: &Array2<f64>) -> Result<()> {
-        let batch_size = x.nrows();
-        let output_size = y.ncols();
-        let num_params = network.count_parameters();
-        
-        let mut jacobian = Array2::zeros((batch_size * output_size, num_params));
-        let mut error_vector = Array1::zeros(batch_size * output_size);
-        
-        // Forward pass to get current outputs
-        let outputs = network.predict(x.clone())?;
-        
-        // Compute error vector
-        for i in 0..batch_size {
-            for j in 0..output_size {
-                let error_idx = i * output_size + j;
-                error_vector[error_idx] = y[[i, j]] - outputs[[i, j]];
-            }
+
+        let w_new: Vec<f64> = w
+            .iter()
+            .zip(delta_w.iter())
+            .map(|(wi, dwi)| wi + dwi)
+            .collect();
+
+        let mut idx = 0;
+        for layer in &mut network.layers {
+            let num_w = layer.w.len();
+            let num_b = layer.b.len();
+
+            layer.w.assign(
+                &Array2::from_shape_vec(layer.w.raw_dim(), w_new[idx..idx + num_w].to_vec())
+                    .unwrap(),
+            );
+            idx += num_w;
+
+            layer.b.assign(
+                &Array2::from_shape_vec(layer.b.raw_dim(), w_new[idx..idx + num_b].to_vec())
+                    .unwrap(),
+            );
+            idx += num_b;
         }
-    
-        // Compute Jacobian using finite differences
-        let epsilon = 1e-7;
-        let mut param_idx = 0;
-        
-        // Clone the network to avoid borrow checker issues
-        let mut network_clone = network.clone();
-        
-        for (layer_idx, layer) in network.layers.iter().enumerate() {
-            let w_shape = layer.w.raw_dim();
-            let b_shape = layer.b.raw_dim();
-            
-            // For weights
-            for i in 0..w_shape[0] {
-                for j in 0..w_shape[1] {
-                    let orig_value = layer.w[[i, j]];
-                    
-                    // Perturb weight in clone
-                    network_clone.layers[layer_idx].w[[i, j]] = orig_value + epsilon;
-                    let outputs_plus = network_clone.predict(x.clone())?;
-                    
-                    // Compute derivative
-                    for k in 0..batch_size {
-                        for l in 0..output_size {
-                            let error_idx = k * output_size + l;
-                            jacobian[[error_idx, param_idx]] = 
-                                (outputs_plus[[k, l]] - outputs[[k, l]]) / epsilon;
-                        }
-                    }
-                    
-                    // Restore original value
-                    network_clone.layers[layer_idx].w[[i, j]] = orig_value;
-                    param_idx += 1;
-                }
+
+        // Compute new error
+        let y_pred_new = network.predict(x.clone())?;
+        let e_new = &y_pred_new - y;
+        let error_new = e_new.mapv(|x| x.powi(2)).sum();
+
+        // Compare errors
+        let error_old = self
+            .error_vector
+            .as_ref()
+            .unwrap()
+            .mapv(|x| x.powi(2))
+            .sum();
+        if error_new < error_old {
+            self.mu *= self.mu_decrease;
+            self.error_vector = Some(e_new.clone().into_shape_with_order(e_new.len()).unwrap());
+            Ok(error_new)
+        } else {
+            self.mu *= self.mu_increase;
+            // Restore old weights
+            let mut idx = 0;
+            for layer in &mut network.layers {
+                let num_w = layer.w.len();
+                let num_b = layer.b.len();
+
+                layer.w.assign(
+                    &Array2::from_shape_vec(layer.w.raw_dim(), w[idx..idx + num_w].to_vec())
+                        .unwrap(),
+                );
+                idx += num_w;
+
+                layer.b.assign(
+                    &Array2::from_shape_vec(layer.b.raw_dim(), w[idx..idx + num_b].to_vec())
+                        .unwrap(),
+                );
+                idx += num_b;
             }
-            
-            // For biases
-            for i in 0..b_shape[0] {
-                for j in 0..b_shape[1] {
-                    let orig_value = layer.b[[i, j]];
-                    
-                    // Perturb bias in clone
-                    network_clone.layers[layer_idx].b[[i, j]] = orig_value + epsilon;
-                    let outputs_plus = network_clone.predict(x.clone())?;
-                    
-                    // Compute derivative
-                    for k in 0..batch_size {
-                        for l in 0..output_size {
-                            let error_idx = k * output_size + l;
-                            jacobian[[error_idx, param_idx]] = 
-                                (outputs_plus[[k, l]] - outputs[[k, l]]) / epsilon;
-                        }
-                    }
-                    
-                    // Restore original value
-                    network_clone.layers[layer_idx].b[[i, j]] = orig_value;
-                    param_idx += 1;
-                }
-            }
+            Ok(error_old)
         }
-        
-        self.jacobian = Some(jacobian);
-        self.error_vector = Some(error_vector);
-        Ok(())
     }
 }

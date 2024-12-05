@@ -7,6 +7,7 @@ pub fn plot_comparison(
     predictions: &[f64],
     filename: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // let _scope_guard = flame::start_guard("plot");
     let root = BitMapBackend::new(filename, (800, 600)).into_drawing_area();
     root.fill(&WHITE)?;
 

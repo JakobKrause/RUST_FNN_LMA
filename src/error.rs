@@ -11,6 +11,8 @@ pub enum NNError {
     // Training related errors
     InvalidInputShape(String),
     InvalidOutputShape(String),
+    InvalidWeightShape(String),
+    InvalidBiasShape(String),
     
     // Optimizer related errors
     OptimizerNotSet,
@@ -35,6 +37,8 @@ pub enum NNError {
     SerializationError(Box<bincode::ErrorKind>),  // Used for bincode serialization errors
 
     ShapeError(ndarray::ShapeError),
+
+    Other(String),
 }
 
 impl fmt::Display for NNError {
@@ -45,6 +49,8 @@ impl fmt::Display for NNError {
             NNError::EmptyModel => write!(f, "Model has no layers"),
             NNError::InvalidInputShape(msg) => write!(f, "Invalid input shape: {}", msg),
             NNError::InvalidOutputShape(msg) => write!(f, "Invalid output shape: {}", msg),
+            NNError::InvalidWeightShape(msg) => write!(f, "Invalid weight shape: {}", msg),
+            NNError::InvalidBiasShape(msg) => write!(f, "Invalid bias shape: {}", msg),
             NNError::OptimizerNotSet => write!(f, "Optimizer not set. Call compile() before training"),
             NNError::InvalidOptimizer(msg) => write!(f, "Invalid optimizer configuration: {}", msg),
             NNError::LossNotSet => write!(f, "Loss function not set. Call compile() before training"),
@@ -56,6 +62,7 @@ impl fmt::Display for NNError {
             NNError::IoError(err) => write!(f, "I/O error: {}", err),
             NNError::SerializationError(err) => write!(f, "Serialization error: {}", err),
             NNError::ShapeError(err) => write!(f, "Shape error: {}", err),
+            NNError::Other(err) => write!(f, "Other error: {}", err),
         }
     }
 }
