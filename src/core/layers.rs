@@ -1,6 +1,5 @@
 use crate::prelude::*;
 use crate::core::optimizers::Optimization;
-use crate::rand_array;
 use crate::core::activations::Activation;
 
 pub trait LayerTrait {

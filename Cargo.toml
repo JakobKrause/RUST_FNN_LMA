@@ -34,7 +34,7 @@ autograd = "1.1.1"
 
 # [[bin]]
 # name="main"
-# path="./example/main.rs"
+# path="./example/main.rs"^
 
 [[bin]]
 name = "main_benchmark"

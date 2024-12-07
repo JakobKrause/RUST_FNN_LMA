@@ -185,7 +185,7 @@ impl MarquardtOptimizer {
         let mut err = Array1::<f64>::zeros(num_samples * num_outputs);
 
         // Compute initial predictions
-        let y_pred = network.predict(x.clone())?;
+        let y_pred = network.predict_with_normalization(x.clone(), false)?;
         let error = &y_pred - y;
 
         // Flatten error vector
@@ -204,13 +204,32 @@ impl MarquardtOptimizer {
             .cloned()
             .collect();
 
-        let delta = 1e-7;
+        let delta = 1e-5;
+
+        // const BASE_DELTA: f64 = 1e-7;
+        // const MIN_DELTA: f64 = 1e-8;
+        // const MAX_DELTA: f64 = 1e-6;
+
 
         let derivs: Vec<Array1<f64>> = (0..num_parameters)
             .into_par_iter()
             .map(|i| {
                 // Create a local copy of weights
                 let mut w_clone = w.clone();
+                
+
+                // // Compute adaptive delta based on weight magnitude
+                // let weight_magnitude = w[i].abs();
+                // let delta = if weight_magnitude > 0.0 {
+                //     // Scale delta with weight magnitude
+                //     let adaptive_delta = BASE_DELTA * weight_magnitude;
+                //     // Clamp to reasonable bounds
+                //     adaptive_delta.clamp(MIN_DELTA, MAX_DELTA)
+                // } else {
+                //     // Use base delta for zero or very small weights
+                //     BASE_DELTA
+                // };
+
 
                 // Perturb weight
                 w_clone[i] += delta;
@@ -260,6 +279,13 @@ impl MarquardtOptimizer {
         let identity = DMatrix::<f64>::identity(j.ncols(), j.ncols());
         let jt_j_mu_i = jt_j.clone() + self.mu * identity;
 
+        // Calculate gradient norm (J^T * e)
+        let gradient = &j_nalgebra.transpose() * &e_nalgebra;
+        let gradient_norm = gradient.norm();
+        
+        network.gradients.push(gradient_norm);
+        network.mus.push(self.mu);
+
         // Compute j^T err
         let jt_e = &j_nalgebra.transpose() * &e_nalgebra;
 
@@ -301,23 +327,31 @@ impl MarquardtOptimizer {
         }
 
         // Compute new error
-        let y_pred_new = network.predict(x.clone())?;
-        let e_new = &y_pred_new - y;
-        let error_new = e_new.mapv(|x| x.powi(2)).sum();
+        let y_pred_new = network.predict_with_normalization(x.clone(), false)?;
+        let e_new: ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>> = &y_pred_new - y;
+        let mse_new = e_new.mapv(|x| x.powi(2)).mean().unwrap();
 
         // Compare errors
-        let error_old = self
-            .error_vector
-            .as_ref()
-            .unwrap()
-            .mapv(|x| x.powi(2))
-            .sum();
-        if error_new < error_old {
-            self.mu *= self.mu_decrease;
+        let mse_old = self
+        .error_vector
+        .as_ref()
+        .unwrap()
+        .mapv(|x| x.powi(2))
+        .mean()
+        .unwrap();
+
+        const ALPHA:f64 = 0.5;
+        const THRESHOLD:f64  = 1e-7;
+
+        let diff = mse_old - mse_new;
+        if diff > 0. {
+            // self.mu *= self.mu_decrease;
+            self.mu = ALPHA * self.mu + (1. - ALPHA) * self.mu * self.mu_decrease;
             self.error_vector = Some(e_new.clone().into_shape_with_order(e_new.len()).unwrap());
-            Ok(error_new)
+            Ok(mse_new)
         } else {
-            self.mu *= self.mu_increase;
+            // self.mu *= self.mu_increase;
+            self.mu = ALPHA * self.mu + (1. - ALPHA) * self.mu * self.mu_increase;
             // Restore old weights
             let mut idx = 0;
             for layer in &mut network.layers {
@@ -336,7 +370,7 @@ impl MarquardtOptimizer {
                 );
                 idx += num_b;
             }
-            Ok(error_old)
+            Ok(mse_old)
         }
     }
 }

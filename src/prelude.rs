@@ -9,6 +9,7 @@ pub use ndarray_rand::rand_distr::Uniform;
 
 pub use crate::models::Sequential;
 pub use crate::error::*;
+
 // Internal re-exports
 pub use crate::core::{
     Activation,
@@ -19,4 +20,5 @@ pub use crate::core::{
     Regularizer,
     OptimizerType,
     OptimizerConfig,
+    Normalization,
 };

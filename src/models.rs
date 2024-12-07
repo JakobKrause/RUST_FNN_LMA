@@ -11,8 +11,14 @@ pub struct Sequential<T: LayerTrait> {
     pub layers: Vec<T>,
     pub optimizer_config: OptimizerConfig,
     pub loss: Loss,
+    lb_input: Vec<f64>,
+    ub_input: Vec<f64>,
+    lb_output: Vec<f64>,
+    ub_output: Vec<f64>,
     #[serde(skip)] // Skip serialization
     pub errors: Vec<f64>,
+    pub mus: Vec<f64>,
+    pub gradients: Vec<f64>,
 }
 
 pub struct SequentialBuilder {
@@ -38,7 +44,13 @@ impl Sequential<Dense> {
                 gradientclip: GradientClipConfig::default(),
             },
             loss: Loss::None,
-            errors: vec![], 
+            errors: vec![],
+            mus: vec![],
+            gradients: vec![], 
+            lb_input: vec![],
+            ub_input: vec![],
+            lb_output: vec![],
+            ub_output: vec![], 
         })
     }
 
@@ -72,8 +84,15 @@ impl Sequential<Dense> {
         self.loss = loss;
     }
 
-    pub fn fit(&mut self, x: Array2<f64>, y: Array2<f64>, epochs: usize, verbose: bool) -> Result<()> {
+    pub fn fit(&mut self, mut x: Array2<f64>, mut y: Array2<f64>, epochs: usize, verbose: bool) -> Result<()> {
         // let _scope_guard = flame::start_guard("fit");
+        self.calc_boundaries(x.clone(),y.clone());
+
+        x.to_unity(self.lb_input[0], self.ub_input[0]);
+        y.to_unity(self.lb_output[0], self.ub_output[0]);
+
+        println!("{:?}", y);
+
         if matches!(self.optimizer_config.optimizer_type, OptimizerType::None) {
             return Err(NNError::OptimizerNotSet);
         }
@@ -92,7 +111,6 @@ impl Sequential<Dense> {
         match self.optimizer_config.optimizer_type {
             OptimizerType::Marquardt { mu, mu_increase, mu_decrease, min_error } => {
                 let mut optimizer = MarquardtOptimizer::new(mu, mu_increase, mu_decrease, min_error);
-                let num_samples = x.nrows();
                 for epoch in 0..epochs {
                     // Compute Jacobian and error vector
                     // println!("Computing Jacobian...........");
@@ -101,8 +119,8 @@ impl Sequential<Dense> {
 
                     // Update weights and get new error
                     // println!("Updating parameters...........");
-                    let error = optimizer.update_weights(self, &x, &y)?;
-                    let mse  = error/num_samples as f64;
+                    let mse = optimizer.update_weights(self, &x, &y)?;
+                    // let mse  = error/num_samples as f64;
 
                     // println!("Updating parameters finished!");
 
@@ -120,7 +138,7 @@ impl Sequential<Dense> {
                     }
                     
                     // Check for convergence
-                    if error < optimizer.min_error {
+                    if mse < optimizer.min_error {
                         break;
                     }
                 }
@@ -192,6 +210,37 @@ impl Sequential<Dense> {
         }
     }
 
+    fn calc_boundaries(&mut self, x: Array2<f64>, y: Array2<f64>) {
+        self.lb_input = x
+            .iter()
+            .cloned()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .map(|max_value| vec![max_value]) // Wrap the maximum value in a Vec
+            .unwrap_or_else(Vec::new);
+
+        self.ub_input = x
+            .iter()
+            .cloned()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .map(|max_value| vec![max_value]) // Wrap the maximum value in a Vec
+            .unwrap_or_else(Vec::new);
+
+        self.lb_output = y
+            .iter()
+            .cloned()
+            .min_by(|a, b| a.partial_cmp(b).unwrap())
+            .map(|max_value| vec![max_value]) // Wrap the maximum value in a Vec
+            .unwrap_or_else(Vec::new);
+
+        self.ub_output = y
+            .iter()
+            .cloned()
+            .max_by(|a, b| a.partial_cmp(b).unwrap())
+            .map(|max_value| vec![max_value]) // Wrap the maximum value in a Vec
+            .unwrap_or_else(Vec::new);
+
+    }
+
     pub fn evaluate(&self, x: Array2<f64>, y: Array2<f64>) -> Result<f64> {
         let weights: Vec<&Array2<f64>> = self.layers.iter()
             .map(|layer| &layer.w)
@@ -209,13 +258,35 @@ impl Sequential<Dense> {
         Ok(loss)
     }
 
-    pub fn predict(&self, mut x: Array2<f64>) -> Result<Array2<f64>> {
-        //FF let _scope_guard = flame::start_guard("predict");
+    // pub fn predict(&self, mut x: Array2<f64>) -> Result<Array2<f64>> {
+    //     //FF let _scope_guard = flame::start_guard("predict");
+    //     x.to_unity(self.lb_input[0], self.ub_input[0]);
+    //     for layer in self.layers.iter() {
+    //         (_, x) = layer.forward(x)?;
+    //     }
+    //     x.from_unity(self.lb_output[0], self.ub_output[0]);
+    //     Ok(x)
+    // }
+    pub fn predict(&self, x: Array2<f64>) -> Result<Array2<f64>> {
+        self.predict_with_normalization(x, true)
+    }
+
+    pub fn predict_with_normalization(&self, mut x: Array2<f64>, apply_normalization: bool) -> Result<Array2<f64>> {
+        if apply_normalization {
+            x.to_unity(self.lb_input[0], self.ub_input[0]);
+        }
+
         for layer in self.layers.iter() {
             (_, x) = layer.forward(x)?;
         }
+
+        if apply_normalization {
+            x.from_unity(self.lb_output[0], self.ub_output[0]);
+        }
+
         Ok(x)
     }
+
 
     pub fn predict_with_weights(&self, mut x: Array2<f64>, weights: &Vec<f64>) -> Result<Array2<f64>> {
         let mut idx = 0;
@@ -286,6 +357,12 @@ impl Sequential<Dense> {
             },
             loss: Loss::None,
             errors: vec![],
+            mus: vec![],
+            gradients: vec![],
+            lb_input: vec![],
+            ub_input: vec![],
+            lb_output: vec![],
+            ub_output: vec![],
         })
     }
 }
