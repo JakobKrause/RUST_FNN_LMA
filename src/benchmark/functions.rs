@@ -21,7 +21,7 @@ impl Multimodal1D for Vec<f64> {
 
 fn multimodal1_d(x: f64) -> f64 {
     let x_scaled = x*10 as f64;
-    -x * x_scaled.sin() * 10000000000.
+    -x * x_scaled.sin() * 1.
     //x*x
     //0 as f64 + x*0 as f64
 }
