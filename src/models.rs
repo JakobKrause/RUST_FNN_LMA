@@ -180,7 +180,7 @@ impl Sequential<Dense> {
                     
                     // Initialize Jacobian matrix and error vector
                     
-                    let jacobian = self.backward_jacobian(&x, &y)?;
+                    let jacobian: ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>> = self.backward_jacobian(&x, &y)?;
                     if false {
                         let _ = self.compute_jacobian_finite(&x, &y)?;
                     }
@@ -192,6 +192,7 @@ impl Sequential<Dense> {
 
                     // Compute j^T j + mu * I
                     let jt_j = &j_nalgebra.transpose() * &j_nalgebra;
+                    // let jt_j = compute_jt_j_rayon(&j_nalgebra);
                     // let jt_j = j_nalgebra.tr_mul(&j_nalgebra);
                     let identity = DMatrix::<f64>::identity(jacobian.ncols(), jacobian.ncols());
                     let jt_j_mu_i = jt_j.clone() + current_mu * identity;
@@ -199,6 +200,7 @@ impl Sequential<Dense> {
 
                     // Compute j^T err
                     let jt_e = &j_nalgebra.transpose() * &e_nalgebra;
+                    // let jt_e = compute_jt_e_rayon(&j_nalgebra, &e_nalgebra);
 
                     // Calculate gradient norm (J^T * e)
                     let gradient_norm = jt_e.norm();                    
@@ -767,3 +769,49 @@ fn divide_rows_by_last_value(array: &mut Array2<f64>) {
         }
     }
 }
+
+
+fn compute_jt_j_rayon(j: &DMatrix<f64>) -> DMatrix<f64> {
+    let (rows, cols) = j.shape();
+    let jt = j.transpose(); // cheap view in nalgebra
+
+    // We'll compute each row of J^T J in parallel:
+    //   row r in the output is the dot of row(r) of J^T with each column of J,
+    //   i.e. sum_{k} (J(k, r) * J(k, c)).
+    //
+    // Then we flatten those rows into a single Vec<f64> and build a DMatrix.
+    let data: Vec<f64> = (0..cols)
+        .into_par_iter()
+        .flat_map(|r| {
+            let mut row_r = Vec::with_capacity(cols);
+            for c in 0..cols {
+                let mut sum = 0.0;
+                for k in 0..rows {
+                    sum += jt[(r, k)] * j[(k, c)];
+                }
+                row_r.push(sum);
+            }
+            row_r
+        })
+        .collect();
+
+    DMatrix::from_row_slice(cols, cols, &data)
+}
+
+
+
+
+// fn compute_jt_e_rayon(j: &DMatrix<f64>, e: &DMatrix<f64>) -> Vec<f64> {
+//     let rows = j.nrows();
+//     let cols = j.ncols();
+
+//     (0..cols).into_par_iter()
+//              .map(|col_idx| {
+//                  let mut sum = 0.0;
+//                  for r in 0..rows {
+//                      sum += j[(r, col_idx)] * e[r];
+//                  }
+//                  sum
+//              })
+//              .collect()
+// }

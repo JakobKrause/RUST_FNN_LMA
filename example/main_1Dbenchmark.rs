@@ -30,7 +30,7 @@ fn main() -> Result<()> {
 
     model.summary();
 
-    model.fit(x.clone(), y.clone(), 1, true)?;
+    model.fit(x.clone(), y.clone(), 300, true)?;
 
     let prediction = model.predict(x.clone())?;
     let mse = model.evaluate(x.clone(), y.clone());
