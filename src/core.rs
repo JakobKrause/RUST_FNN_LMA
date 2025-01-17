@@ -11,4 +11,4 @@ pub use layers::{LayerTrait, Dense};
 pub use losses::Loss;
 pub use optimizers::*;
 pub use normalization::Normalization;
-pub use output::write_jacobian_to_csv;
+pub use output::write_to_csv;

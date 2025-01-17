@@ -1,6 +1,6 @@
 #[allow(unused)]
 use crate::prelude::*;
-// use fastapprox::fast::tanh as faster_tanh;
+use fastapprox::fast::tanh as faster_tanh;
 // use fastapprox::fast::exp as fast_exp;
 // use fastapprox::fast::sigmoid as sigmoid_fast;
 
@@ -77,12 +77,12 @@ fn tanh_forward(z: Array2<f64>) -> Array2<f64> {
 }
 
 fn tanh_backward(z: Array2<f64>) -> Array2<f64> {
-    z.mapv(|z| 1.0 - z.tanh().powf(2.0))
+    // z.mapv(|z| 1.0 - z.tanh().powf(2.0))
 
-    // z.mapv(|z| {
-    //     let t = faster_tanh(z as f32) as f64;
-    //     1.0 - t * t
-    // })
+    z.mapv(|z| {
+        let t = faster_tanh(z as f32) as f64;
+        1.0 - t * t
+    })
 }
 
 fn softmax_forward(z: Array2<f64>) -> Array2<f64> {
