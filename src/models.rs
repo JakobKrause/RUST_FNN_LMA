@@ -5,6 +5,7 @@ use crate::core::GradientClipConfig;
 use crate::prelude::*;
 use faer::linalg::solvers::Solve;
 use faer::Mat;
+use nalgebra::{DMatrix, DVector};
 use rand::seq::SliceRandom; // for shuffle
 use rand::thread_rng; // for random state
 use rayon::prelude::*;
@@ -227,6 +228,7 @@ impl Sequential<Dense> {
                     // Compute initial predictions
                     let y_pred = self.predict_with_normalization(val_x.clone(), false)?;
                     let error = &y_pred - val_y.clone();
+                    // println!("{}", val_y);
 
                     // Flatten error vector
                     err_val.assign(&error.clone().to_shape((val_size * num_outputs,)).unwrap());
@@ -298,19 +300,18 @@ impl Sequential<Dense> {
 
                     let jacobian: ArrayBase<OwnedRepr<f64>, Dim<[usize; 2]>> =
                         self.backward_jacobian(&x, &y)?;
-                    if false {
-                        let _ = self.compute_jacobian_finite(&x, &y)?;
-                    }
+                    // if true {
+                        // let jacobian = self.compute_jacobian_finite(&x, &y)?;
+                    // }
 
                     // let delta_w = self.compute_delta_w_lm(jacobian, da, current_mu);
-                    let mut mm = 0;
-                    const ALPHA: f64 = 0.2;
+                    let mut mm = 1;
+                    const ALPHA: f64 = 0.0;
                     const MAX_MU: f64 = 1000.;
 
-                    while mm<8 {
-                        
-                        
-                        // println!("m: {}", m);
+                    loop {
+                        // println!("m: {}", mm);
+                        // println!("mu: {}", current_mu);
                         let delta_w = self.compute_delta_w_lm(jacobian.clone(), da.clone(), current_mu);
 
                         // Update weights
@@ -349,7 +350,7 @@ impl Sequential<Dense> {
                             );
                             idx += num_b;
                         }
-                        if current_mu >= MAX_MU {break}
+                        // if current_mu >= MAX_MU {break}
 
                         // Forward propagation
                         let mut z_cache = vec![];
@@ -410,7 +411,7 @@ impl Sequential<Dense> {
                             // Some(e_new.clone().into_shape_with_order(e_new.len()).unwrap());
                             //Ok(raw_loss_new)
                         }
-                         else if mm == 5 {
+                        else if mm > 5 {
                             // println!("break");
                             // self.m.push(m as f64);
                             break
@@ -419,8 +420,9 @@ impl Sequential<Dense> {
                             // self.mu *= self.mu_increase;
 
                             if current_mu < MAX_MU {
-                                current_mu =
-                                    ALPHA * current_mu + (1. - ALPHA) * current_mu * mu_increase;
+                                // println!("mu:{}", current_mu);
+                                current_mu = ALPHA * current_mu + (1. - ALPHA) * current_mu * mu_increase;
+                                // println!("mu:{}", current_mu);
                             }
                             // Restore old weights
                             let mut idx = 0;
@@ -446,7 +448,8 @@ impl Sequential<Dense> {
                                 );
                                 idx += num_b;                                
                             }
-                            
+                            // println!("mm+1");
+                            mm+=1;
                         }
 
                         self.errors_new.push(raw_loss_new);
@@ -462,9 +465,9 @@ impl Sequential<Dense> {
                         {
                             *mu = current_mu;
                         }
-                        mm+=1;
+                        
                     }
-                    self.m.push(mm as f64);
+                    self.m.push((mm) as f64);
                     self.mus.push(current_mu);
                     self.time.push(start.elapsed().as_secs_f64());
                 }
@@ -606,6 +609,7 @@ impl Sequential<Dense> {
             // Update column offset for next iteration
             col_offset -= ncols;
         }
+        //output::write_jacobian_to_csv(&jacobian, "jacobian.csv").unwrap();
 
         divide_rows_by_last_value(&mut jacobian);
 
@@ -646,10 +650,11 @@ impl Sequential<Dense> {
 
     pub fn evaluate(&self, x: Array2<f64>, y: Array2<f64>) -> Result<f64> {
         let weights: Vec<&Array2<f64>> = self.layers.iter().map(|layer| &layer.w).collect();
-
+        let y_hat = self.predict(x)?;
+        // println!("{}",y);
         // Handle the Result returned by criteria
-        let (_, _, loss) = criteria(
-            self.predict(x)?,
+        let (loss, _, _) = criteria(
+            y_hat,
             y,
             self.loss.clone(),
             &weights,
@@ -848,7 +853,7 @@ impl Sequential<Dense> {
         // let j_nalgebra = DMatrix::from_row_slice(jacobian.nrows(), jacobian.ncols(), jacobian.as_slice().unwrap());
         // let e_nalgebra = DVector::from_column_slice(da.as_slice().unwrap());
 
-        // Convert to faer types
+        // // Convert to faer types
         let nrows = jacobian.nrows();
         let ncols = jacobian.ncols();
         let mut j_faer = Mat::<f64>::zeros(nrows, ncols);
@@ -872,7 +877,7 @@ impl Sequential<Dense> {
         // // let jt_j = compute_jt_j_rayon(&j_nalgebra);
         // // let jt_j = j_nalgebra.tr_mul(&j_nalgebra);
         // let identity = DMatrix::<f64>::identity(jacobian.ncols(), jacobian.ncols());
-        // let jt_j_mu_i = jt_j.clone() + current_mu * identity;
+        // let jt_j_mu_i = jt_j.clone() + mu * identity;
 
         let jt_j = j_faer.transpose() * &j_faer;
         let identity = Mat::<f64>::identity(jacobian.ncols(), jacobian.ncols());
@@ -895,11 +900,9 @@ impl Sequential<Dense> {
 
         // let delta_w = match jt_j_mu_i.cholesky().and_then(|ch| Some(ch.solve(&(-jt_e)))) {
         //     Some(d) => d,
-        //     None => return Err(NNError::SerializationError(Box::new(
-        //         bincode::ErrorKind::Custom("Failed to solve linear system".to_string())
-        //     ))),
+        //     None => return jacobian
         // };
-
+        
         // let delta_w = match jt_j_mu_i.cholesky(Side::Lower) {
         //     Some(chol) => chol.solve(&(-jt_e)),
         //     None => return Err(NNError::SerializationError(Box::new(
@@ -910,7 +913,7 @@ impl Sequential<Dense> {
         // Compute the QR decomposition.
         // let qr = jt_j_mu_i.qr();
         let test = jt_j_mu_i.llt(faer::Side::Lower).unwrap();
-        // let test: std::result::Result<faer::linalg::solvers::Ldlt<f64>, faer::linalg::solvers::LdltError> = jt_j_mu_i.llt();
+        // let test = jt_j_mu_i.qr();
         // let delta_w = qr.solve(&(-jt_e));
         let delta_w = test.solve(&(-jt_e));
 
