@@ -1,4 +1,4 @@
-# Neural Network Regression with RKL
+# Neural Network Regression in Rust with Levenberg Marquardt Training
 
 A Rust implementation demonstrating neural network regression on multimodal functions using the [RKL (Rust Keras Like)](https://github.com/AhmedBoin/Rust-Keras-Like) library.
 
@@ -23,6 +23,10 @@ fn main() -> Result<()> {
     let x_vec: Vec<f64> = (1..=1000).map(|x| 0.001 * x as f64).collect();
     let y_vec: Vec<f64> = multimodal1_d(x_vec);
 
+    // Convert to Array2 where each row is a single sample
+    let x = Array2::from_shape_vec((x_vec.len(), 1), x_vec.clone()).unwrap();
+    let y = Array2::from_shape_vec((y_vec.len(), 1), y_vec.clone()).unwrap();
+
     // Create model architecture
     let mut model = Sequential::builder()
         .add_dense(1, 20, Activation::Tanh)?
@@ -39,7 +43,7 @@ fn main() -> Result<()> {
         .build()?;
 
     // Train and evaluate
-    model.fit(x.clone(), y.clone(), 2000, true)?;
+    model.fit(x.clone(), y.clone(), epochs: 2000, verbose: true)?;
     let prediction = model.predict(x.clone())?;
     let mse = model.evaluate(x.clone(), y.clone());
 
